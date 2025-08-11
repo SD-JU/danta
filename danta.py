@@ -1,4 +1,228 @@
-import streamlit as st
+# 메인 애플리케이션
+def main():
+    # 화면 크기 감지 (JavaScript)
+    screen_width = st.session_state.get('screen_width', 1200)
+    
+    # 화면 크기 감지 스크립트
+    st.markdown("""
+    <script>
+    function updateScreenWidth() {
+        const width = window.innerWidth;
+        window.parent.postMessage({
+            type: 'streamlit:setComponentValue',
+            data: { screen_width: width }
+        }, '*');
+    }
+    updateScreenWidth();
+    window.addEventListener('resize', updateScreenWidth);
+    </script>
+    """, unsafe_allow_html=True)
+    
+    # 모바일 감지
+    is_mobile = screen_width < 768
+    
+    # 헤더
+    if is_mobile:
+        st.markdown("""
+        <div class="main-header">
+            <h1>📊 업비트 분석기</h1>
+            <p style="text-align: center; color: white; margin: 0; font-size: 0.9rem;">실시간 차트 분석</p>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div class="main-header">
+            <h1>📊 업비트 차트 분석기</h1>
+            <p style="text-align: center; color: white; margin: 0;">실시간 업비트 데이터로 전문가급 차트 분석</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # 모바일용 간소화된 사이드바
+    if is_mobile:
+        # 모바일에서는 상단에 주요 설정만 표시
+        st.markdown("### ⚙️ 설정")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            tickers = get_upbit_tickers()
+            coin_name = st.selectbox("종목", list(tickers.keys()), key="mobile_coin")
+        
+        with col2:
+            interval = st.selectbox("간격", ['1시간', '4시간', '일봉', '주봉'], index=2, key="mobile_interval")
+        
+        # 간단한 설정
+        show_support_resistance = st.checkbox("📊 지지/저항선", value=True, key="mobile_sr")
+        indicators = ['MA20']  # 모바일에서는 MA20만
+        
+        market_code = tickers[coin_name]
+        candle_count = 100  # 모바일에서는 데이터 적게
+        show_volume_profile = False
+        
+    else:
+        # 데스크톱용 전체 사이드바
+        with st.sidebar:
+            st.markdown("## ⚙️ 분석 설정")
+            
+            # 주요 암호화폐 선택
+            tickers = get_upbit_tickers()
+            
+            # 종목 선택
+            coin_name = st.selectbox(
+                "📈 분석할 종목을 선택하세요",
+                options=list(tickers.keys()),
+                index=0
+            )
+            
+            if coin_name:
+                market_code = tickers[coin_name]
+                st.success(f"선택된 종목: {market_code}")
+            
+            # 시간 간격 선택
+            interval = st.selectbox(
+                "⏰ 차트 간격",
+                options=['1분', '5분', '15분', '30분', '1시간', '4시간', '일봉', '주봉', '월봉'],
+                index=6  # 기본값: 일봉
+            )
+            
+            # 캔들 개수
+            candle_count = st.slider("📊 캔들 개수", min_value=50, max_value=500, value=200, step=50)
+            
+            st.markdown("---")
+            
+            # 분석 도구 선택
+            st.markdown("## 🛠️ 분석 도구")
+            
+            show_support_resistance = st.checkbox("🛡️ 지지선/저항선", value=True)
+            show_volume_profile = st.checkbox("📊 거래량 프로파일", value=True)
+            
+            st.markdown("### 📈 기술적 지표")
+            indicators = st.multiselect(
+                "표시할 지표를 선택하세요",
+                options=['MA5', 'MA20', 'MA60', 'MA120', '볼린저밴드', 'RSI'],
+                default=['MA20', 'MA60', 'RSI']
+            )
+            
+            # 새로고침 버튼
+            if st.button("🔄 데이터 새로고침", type="primary"):
+                st.cache_data.clear()
+                st.rerun()
+    
+    # 메인 컨텐츠
+    if coin_name:
+        # 모바일에서는 세로 배치, 데스크톱에서는 가로 배치
+        if is_mobile:
+            # 모바일: 세로 배치
+            with st.spinner("📊 데이터 분석 중..."):
+                df = get_upbit_candles(market_code, interval, candle_count)
+                
+                if df.empty:
+                    st.error("데이터를 불러올 수 없습니다.")
+                    return
+                
+                df = calculate_technical_indicators(df)
+                
+                support_levels, resistance_levels = [], []
+                if show_support_resistance:
+                    support_levels, resistance_levels = calculate_support_resistance(df)
+                
+                volume_profile_df = pd.DataFrame()
+                if show_volume_profile:
+                    volume_profile_df = calculate_volume_profile(df)
+                
+                buy_signals, sell_signals, nearest_support, nearest_resistance = calculate_trade_signals(
+                    df, support_levels, resistance_levels, volume_profile_df
+                )
+            
+            # 현재 가격 정보 (모바일용 간소화)
+            current_price = df.iloc[-1]['trade_price']
+            prev_price = df.iloc[-2]['trade_price'] if len(df) > 1 else current_price
+            price_change = current_price - prev_price
+            price_change_pct = (price_change / prev_price) * 100 if prev_price != 0 else 0
+            
+            # 큰 글씨로 현재가 표시
+            st.markdown(f"""
+            <div style="text-align: center; background: #f8f9fa; padding: 1rem; border-radius: 10px; margin: 1rem 0;">
+                <h1 style="margin: 0; color: #333;">{current_price:,.0f}원</h1>
+                <h3 style="margin: 0; color: {'red' if price_change > 0 else 'blue'};">
+                    {price_change:+.0f}원 ({price_change_pct:+.2f}%)
+                </h3>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        else:
+            # 데스크톱: 기존 레이아웃
+            col1, col2, col3 = st.columns(3)
+            
+            with st.spinner("데이터를 분석하는 중..."):
+                df = get_upbit_candles(market_code, interval, candle_count)
+                
+                if df.empty:
+                    st.error("데이터를 불러올 수 없습니다.")
+                    return
+                
+                df = calculate_technical_indicators(df)
+                
+                support_levels, resistance_levels = [], []
+                if show_support_resistance:
+                    support_levels, resistance_levels = calculate_support_resistance(df)
+                
+                volume_profile_df = pd.DataFrame()
+                if show_volume_profile:
+                    volume_profile_df = calculate_volume_profile(df)
+                
+                buy_signals, sell_signals, nearest_support, nearest_resistance = calculate_trade_signals(
+                    df, support_levels, resistance_levels, volume_profile_df
+                )
+            
+            # 현재 가격 정보
+            current_price = df.iloc[-1]['trade_price']
+            prev_price = df.iloc[-2]['trade_price'] if len(df) > 1 else current_price
+            price_change = current_price - prev_price
+            price_change_pct = (price_change / prev_price) * 100 if prev_price != 0 else 0
+            
+            with col1:
+                st.metric("현재가", f"{current_price:,.0f}원", f"{price_change:+.0f}원 ({price_change_pct:+.2f}%)")
+            
+            with col2:
+                st.metric("24시간 거래량", f"{df.iloc[-1]['candle_acc_trade_volume']:,.0f}")
+            
+            with col3:
+                if not df['RSI'].isna().iloc[-1]:
+                    rsi_value = df['RSI'].iloc[-1]
+                    rsi_status = "과매수" if rsi_value > 70 else "과매도" if rsi_value < 30 else "중립"
+                    st.metric("RSI", f"{rsi_value:.1f}", rsi_status)
+        
+        # 메인 차트 (화면 크기에 따라 최적화)
+        st.session_state['screen_width'] = 500 if is_mobile else 1200  # 임시 설정
+        fig = create_main_chart(df, support_levels, resistance_levels, 
+                               show_volume_profile, volume_profile_df, indicators)
+        
+        # 모바일에서는 차트를 더 크게 표시
+        if is_mobile:
+            st.plotly_chart(fig, use_container_width=True, config={
+                'displayModeBar': False,  # 도구 모음 숨김
+                'doubleClick': 'reset+autosize'  # 더블클릭으로 리셋
+            })
+        else:
+            st.plotly_chart(fig, use_container_width=True)
+        
+        # 분석 정보 (모바일에서는 간소화)
+        if is_mobile:
+            # 모바일용 간소화된 정보
+            if buy_signals and sell_signals:
+                st.markdown("### 🎯 추천가")
+                
+                # 주요 추천가만 표시
+                best_buy = min(buy_signals, key=lambda x: abs(x[1] - current_price))
+                best_sell = min(sell_signals, key=lambda x: abs(x[1] - current_price))
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown(f"""
+                    **💰 매수 추천**  
+                    {best_buy[1]:,.0f}원  
+                    ({best_buy[0]})
+                import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -14,12 +238,13 @@ st.set_page_config(
     page_title="업비트 차트 분석기",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="auto"  # 모바일에서 자동 조정
 )
 
 # CSS 스타일
 st.markdown("""
 <style>
+    /* 모바일 최적화 스타일 */
     .main-header {
         background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
         padding: 1rem;
@@ -32,6 +257,50 @@ st.markdown("""
         margin: 0;
         font-size: 2.5rem;
     }
+    
+    /* 모바일에서 글자 크기 조정 */
+    @media (max-width: 768px) {
+        .main-header h1 {
+            font-size: 1.8rem !important;
+        }
+        .main-header p {
+            font-size: 0.9rem !important;
+        }
+        
+        /* 메트릭 카드 모바일 최적화 */
+        .metric-card {
+            font-size: 0.85rem !important;
+            padding: 0.5rem !important;
+        }
+        
+        /* 사이드바 숨기기 버튼 스타일 */
+        .css-1d391kg {
+            padding-top: 1rem;
+        }
+        
+        /* 차트 컨테이너 최적화 */
+        .stPlotlyChart {
+            width: 100% !important;
+            height: auto !important;
+        }
+        
+        /* 버튼 크기 조정 */
+        .stButton button {
+            width: 100% !important;
+            padding: 0.5rem !important;
+        }
+        
+        /* 선택박스 최적화 */
+        .stSelectbox {
+            font-size: 0.9rem !important;
+        }
+        
+        /* 멀티셀렉트 최적화 */
+        .stMultiSelect {
+            font-size: 0.85rem !important;
+        }
+    }
+    
     .metric-card {
         background: #f8f9fa;
         padding: 1rem;
@@ -54,6 +323,14 @@ st.markdown("""
         background-color: #d4edda;
         border-color: #c3e6cb;
         color: #155724;
+    }
+    
+    /* 모바일 차트 최적화 */
+    @media (max-width: 768px) {
+        .js-plotly-plot {
+            width: 100% !important;
+            height: 400px !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -340,18 +617,38 @@ def calculate_trade_signals(df, support_levels, resistance_levels, volume_profil
     return df
 
 def create_main_chart(df, support_levels, resistance_levels, show_volume_profile, volume_profile_df, indicators):
-    """메인 차트 생성"""
-    fig = make_subplots(
-        rows=3, cols=2,
-        row_heights=[0.6, 0.2, 0.2],
-        column_widths=[0.8, 0.2],
-        specs=[[{"secondary_y": False}, {"type": "bar"}],
-               [{"secondary_y": False}, None],
-               [{"secondary_y": False}, None]],
-        subplot_titles=('가격 차트', '거래량 프로파일', '거래량', '', 'RSI', ''),
-        vertical_spacing=0.05,
-        horizontal_spacing=0.05
-    )
+    """메인 차트 생성 (모바일 최적화)"""
+    
+    # 모바일 감지 (JavaScript를 통한 화면 크기 감지)
+    is_mobile = st.session_state.get('is_mobile', False)
+    
+    # 모바일용 차트 설정
+    if st.session_state.get('screen_width', 1200) < 768:
+        # 모바일: 단순화된 레이아웃
+        fig = make_subplots(
+            rows=2, cols=1,
+            row_heights=[0.7, 0.3],
+            specs=[[{"secondary_y": False}],
+                   [{"secondary_y": False}]],
+            subplot_titles=('📈 가격 차트', '📊 거래량'),
+            vertical_spacing=0.1
+        )
+        chart_height = 500
+        show_volume_profile = False  # 모바일에서는 거래량 프로파일 숨김
+    else:
+        # 데스크톱: 전체 레이아웃
+        fig = make_subplots(
+            rows=3, cols=2,
+            row_heights=[0.6, 0.2, 0.2],
+            column_widths=[0.8, 0.2],
+            specs=[[{"secondary_y": False}, {"type": "bar"}],
+                   [{"secondary_y": False}, None],
+                   [{"secondary_y": False}, None]],
+            subplot_titles=('가격 차트', '거래량 프로파일', '거래량', '', 'RSI', ''),
+            vertical_spacing=0.05,
+            horizontal_spacing=0.05
+        )
+        chart_height = 800
     
     # 캔들스틱 차트
     fig.add_trace(
@@ -368,28 +665,30 @@ def create_main_chart(df, support_levels, resistance_levels, show_volume_profile
         row=1, col=1
     )
     
-    # 이동평균선
-    if 'MA5' in indicators:
+    # 이동평균선 (모바일에서는 개수 제한)
+    mobile_indicators = ['MA20'] if st.session_state.get('screen_width', 1200) < 768 else indicators
+    
+    if 'MA5' in mobile_indicators:
         fig.add_trace(
             go.Scatter(x=df['candle_date_time_kst'], y=df['MA5'], 
                       name='MA5', line=dict(color='orange', width=1)),
             row=1, col=1
         )
-    if 'MA20' in indicators:
+    if 'MA20' in mobile_indicators:
         fig.add_trace(
             go.Scatter(x=df['candle_date_time_kst'], y=df['MA20'], 
-                      name='MA20', line=dict(color='blue', width=1)),
+                      name='MA20', line=dict(color='blue', width=2)),
             row=1, col=1
         )
-    if 'MA60' in indicators:
+    if 'MA60' in mobile_indicators and st.session_state.get('screen_width', 1200) >= 768:
         fig.add_trace(
             go.Scatter(x=df['candle_date_time_kst'], y=df['MA60'], 
                       name='MA60', line=dict(color='purple', width=1)),
             row=1, col=1
         )
     
-    # 볼린저 밴드
-    if '볼린저밴드' in indicators:
+    # 볼린저 밴드 (데스크톱만)
+    if '볼린저밴드' in indicators and st.session_state.get('screen_width', 1200) >= 768:
         fig.add_trace(
             go.Scatter(x=df['candle_date_time_kst'], y=df['BB_upper'], 
                       name='BB Upper', line=dict(color='gray', width=1, dash='dash')),
@@ -401,19 +700,21 @@ def create_main_chart(df, support_levels, resistance_levels, show_volume_profile
             row=1, col=1
         )
     
-    # 지지선/저항선
+    # 지지선/저항선 (개수 제한)
+    max_lines = 3 if st.session_state.get('screen_width', 1200) < 768 else 5
+    
     if support_levels:
-        for level in support_levels[-5:]:  # 최근 5개만
+        for level in support_levels[:max_lines]:
             fig.add_hline(y=level, line_dash="dash", line_color="green", 
                          annotation_text=f"지지: {level:,.0f}", row=1, col=1)
     
     if resistance_levels:
-        for level in resistance_levels[-5:]:  # 최근 5개만
+        for level in resistance_levels[:max_lines]:
             fig.add_hline(y=level, line_dash="dash", line_color="red", 
                          annotation_text=f"저항: {level:,.0f}", row=1, col=1)
     
-    # 거래량 프로파일
-    if show_volume_profile and not volume_profile_df.empty:
+    # 거래량 프로파일 (데스크톱만)
+    if show_volume_profile and not volume_profile_df.empty and st.session_state.get('screen_width', 1200) >= 768:
         fig.add_trace(
             go.Bar(
                 y=volume_profile_df['price'],
@@ -428,14 +729,15 @@ def create_main_chart(df, support_levels, resistance_levels, show_volume_profile
     
     # 거래량 차트
     colors = ['red' if row['opening_price'] > row['trade_price'] else 'blue' for _, row in df.iterrows()]
+    volume_row = 2 if st.session_state.get('screen_width', 1200) < 768 else 2
     fig.add_trace(
         go.Bar(x=df['candle_date_time_kst'], y=df['candle_acc_trade_volume'],
                name='거래량', marker_color=colors),
-        row=2, col=1
+        row=volume_row, col=1
     )
     
-    # RSI
-    if not df['RSI'].isna().all():
+    # RSI (데스크톱만)
+    if not df['RSI'].isna().all() and st.session_state.get('screen_width', 1200) >= 768:
         fig.add_trace(
             go.Scatter(x=df['candle_date_time_kst'], y=df['RSI'], 
                       name='RSI', line=dict(color='purple')),
@@ -446,11 +748,13 @@ def create_main_chart(df, support_levels, resistance_levels, show_volume_profile
     
     # 레이아웃 설정
     fig.update_layout(
-        title="업비트 차트 분석",
+        title="📊 업비트 차트 분석",
         xaxis_rangeslider_visible=False,
-        height=800,
+        height=chart_height,
         showlegend=True,
-        template="plotly_white"
+        template="plotly_white",
+        # 모바일 최적화
+        margin=dict(l=20, r=20, t=50, b=20) if st.session_state.get('screen_width', 1200) < 768 else dict(l=50, r=50, t=50, b=50)
     )
     
     return fig
