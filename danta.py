@@ -1,187 +1,282 @@
 # 메인 애플리케이션
 def main():
-    # 화면 크기 감지 (JavaScript)
-    screen_width = st.session_state.get('screen_width', 1200)
-    
-    # 화면 크기 감지 스크립트
+    # 헤더
     st.markdown("""
-    <script>
-    function updateScreenWidth() {
-        const width = window.innerWidth;
-        window.parent.postMessage({
-            type: 'streamlit:setComponentValue',
-            data: { screen_width: width }
-        }, '*');
-    }
-    updateScreenWidth();
-    window.addEventListener('resize', updateScreenWidth);
-    </script>
+    <div class="main-header">
+        <h1>📊 업비트 차트 분석기</h1>
+        <p style="text-align: center; color: white; margin: 0;">실시간 업비트 데이터로 전문가급 차트 분석</p>
+    </div>
     """, unsafe_allow_html=True)
     
-    # 모바일 감지
-    is_mobile = screen_width < 768
-    
-    # 헤더
-    if is_mobile:
-        st.markdown("""
-        <div class="main-header">
-            <h1>📊 업비트 분석기</h1>
-            <p style="text-align: center; color: white; margin: 0; font-size: 0.9rem;">실시간 차트 분석</p>
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown("""
-        <div class="main-header">
-            <h1>📊 업비트 차트 분석기</h1>
-            <p style="text-align: center; color: white; margin: 0;">실시간 업비트 데이터로 전문가급 차트 분석</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # 모바일용 간소화된 사이드바
-    if is_mobile:
-        # 모바일에서는 상단에 주요 설정만 표시
-        st.markdown("### ⚙️ 설정")
-        col1, col2 = st.columns(2)
+    # 사이드바
+    with st.sidebar:
+        st.markdown("## ⚙️ 분석 설정")
         
-        with col1:
-            tickers = get_upbit_tickers()
-            coin_name = st.selectbox("종목", list(tickers.keys()), key="mobile_coin")
+        # 주요 암호화폐 선택
+        tickers = get_upbit_tickers()
         
-        with col2:
-            interval = st.selectbox("간격", ['1시간', '4시간', '일봉', '주봉'], index=2, key="mobile_interval")
+        # 종목 선택
+        coin_name = st.selectbox(
+            "📈 분석할 종목을 선택하세요",
+            options=list(tickers.keys()),
+            index=0
+        )
         
-        # 간단한 설정
-        show_support_resistance = st.checkbox("📊 지지/저항선", value=True, key="mobile_sr")
-        indicators = ['MA20']  # 모바일에서는 MA20만
+        if coin_name:
+            market_code = tickers[coin_name]
+            st.success(f"선택된 종목: {market_code}")
         
-        market_code = tickers[coin_name]
-        candle_count = 100  # 모바일에서는 데이터 적게
-        show_volume_profile = False
+        # 시간 간격 선택
+        interval = st.selectbox(
+            "⏰ 차트 간격",
+            options=['1분', '5분', '15분', '30분', '1시간', '4시간', '일봉', '주봉', '월봉'],
+            index=6  # 기본값: 일봉
+        )
         
-    else:
-        # 데스크톱용 전체 사이드바
-        with st.sidebar:
-            st.markdown("## ⚙️ 분석 설정")
-            
-            # 주요 암호화폐 선택
-            tickers = get_upbit_tickers()
-            
-            # 종목 선택
-            coin_name = st.selectbox(
-                "📈 분석할 종목을 선택하세요",
-                options=list(tickers.keys()),
-                index=0
-            )
-            
-            if coin_name:
-                market_code = tickers[coin_name]
-                st.success(f"선택된 종목: {market_code}")
-            
-            # 시간 간격 선택
-            interval = st.selectbox(
-                "⏰ 차트 간격",
-                options=['1분', '5분', '15분', '30분', '1시간', '4시간', '일봉', '주봉', '월봉'],
-                index=6  # 기본값: 일봉
-            )
-            
-            # 캔들 개수
-            candle_count = st.slider("📊 캔들 개수", min_value=50, max_value=500, value=200, step=50)
-            
-            st.markdown("---")
-            
-            # 분석 도구 선택
-            st.markdown("## 🛠️ 분석 도구")
-            
-            show_support_resistance = st.checkbox("🛡️ 지지선/저항선", value=True)
-            show_volume_profile = st.checkbox("📊 거래량 프로파일", value=True)
-            
-            st.markdown("### 📈 기술적 지표")
-            indicators = st.multiselect(
-                "표시할 지표를 선택하세요",
-                options=['MA5', 'MA20', 'MA60', 'MA120', '볼린저밴드', 'RSI'],
-                default=['MA20', 'MA60', 'RSI']
-            )
-            
-            # 새로고침 버튼
-            if st.button("🔄 데이터 새로고침", type="primary"):
-                st.cache_data.clear()
-                st.rerun()
+        # 캔들 개수
+        candle_count = st.slider("📊 캔들 개수", min_value=50, max_value=500, value=200, step=50)
+        
+        st.markdown("---")
+        
+        # 분석 도구 선택
+        st.markdown("## 🛠️ 분석 도구")
+        
+        show_support_resistance = st.checkbox("🛡️ 지지선/저항선", value=True)
+        show_volume_profile = st.checkbox("📊 거래량 프로파일", value=True)
+        
+        st.markdown("### 📈 기술적 지표")
+        indicators = st.multiselect(
+            "표시할 지표를 선택하세요",
+            options=['MA5', 'MA20', 'MA60', 'MA120', '볼린저밴드', 'RSI'],
+            default=['MA20', 'MA60', 'RSI']
+        )
+        
+        # 새로고침 버튼
+        if st.button("🔄 데이터 새로고침", type="primary"):
+            st.cache_data.clear()
+            st.rerun()
     
     # 메인 컨텐츠
     if coin_name:
-        # 모바일에서는 세로 배치, 데스크톱에서는 가로 배치
-        if is_mobile:
-            # 모바일: 세로 배치
-            with st.spinner("📊 데이터 분석 중..."):
-                df = get_upbit_candles(market_code, interval, candle_count)
-                
-                if df.empty:
-                    st.error("데이터를 불러올 수 없습니다.")
-                    return
-                
-                df = calculate_technical_indicators(df)
-                
-                support_levels, resistance_levels = [], []
-                if show_support_resistance:
-                    support_levels, resistance_levels = calculate_support_resistance(df)
-                
-                volume_profile_df = pd.DataFrame()
-                if show_volume_profile:
-                    volume_profile_df = calculate_volume_profile(df)
-                
-                buy_signals, sell_signals, nearest_support, nearest_resistance = calculate_trade_signals(
-                    df, support_levels, resistance_levels, volume_profile_df
-                )
+        col1, col2, col3 = st.columns(3)
+        
+        with st.spinner("데이터를 분석하는 중..."):
+            # 데이터 로드
+            df = get_upbit_candles(market_code, interval, candle_count)
             
-            # 현재 가격 정보 (모바일용 간소화)
-            current_price = df.iloc[-1]['trade_price']
-            prev_price = df.iloc[-2]['trade_price'] if len(df) > 1 else current_price
-            price_change = current_price - prev_price
-            price_change_pct = (price_change / prev_price) * 100 if prev_price != 0 else 0
+            if df.empty:
+                st.error("데이터를 불러올 수 없습니다.")
+                return
             
-            # 큰 글씨로 현재가 표시
-            st.markdown(f"""
-            <div style="text-align: center; background: #f8f9fa; padding: 1rem; border-radius: 10px; margin: 1rem 0;">
-                <h1 style="margin: 0; color: #333;">{current_price:,.0f}원</h1>
-                <h3 style="margin: 0; color: {'red' if price_change > 0 else 'blue'};">
-                    {price_change:+.0f}원 ({price_change_pct:+.2f}%)
-                </h3>
-            </div>
-            """, unsafe_allow_html=True)
+            # 기술적 지표 계산
+            df = calculate_technical_indicators(df)
             
-        else:
-            # 데스크톱: 기존 레이아웃
-            col1, col2, col3 = st.columns(3)
+            # 지지선/저항선 계산
+            support_levels, resistance_levels = [], []
+            if show_support_resistance:
+                support_levels, resistance_levels = calculate_support_resistance(df)
             
-            with st.spinner("데이터를 분석하는 중..."):
-                df = get_upbit_candles(market_code, interval, candle_count)
-                
-                if df.empty:
-                    st.error("데이터를 불러올 수 없습니다.")
-                    return
-                
-                df = calculate_technical_indicators(df)
-                
-                support_levels, resistance_levels = [], []
-                if show_support_resistance:
-                    support_levels, resistance_levels = calculate_support_resistance(df)
-                
-                volume_profile_df = pd.DataFrame()
-                if show_volume_profile:
-                    volume_profile_df = calculate_volume_profile(df)
-                
-                buy_signals, sell_signals, nearest_support, nearest_resistance = calculate_trade_signals(
-                    df, support_levels, resistance_levels, volume_profile_df
-                )
+            # 거래량 프로파일 계산
+            volume_profile_df = pd.DataFrame()
+            if show_volume_profile:
+                volume_profile_df = calculate_volume_profile(df)
             
-            # 현재 가격 정보
-            current_price = df.iloc[-1]['trade_price']
-            prev_price = df.iloc[-2]['trade_price'] if len(df) > 1 else current_price
-            price_change = current_price - prev_price
-            price_change_pct = (price_change / prev_price) * 100 if prev_price != 0 else 0
+            # 매매 신호 계산
+            buy_signals, sell_signals, nearest_support, nearest_resistance = calculate_trade_signals(
+                df, support_levels, resistance_levels, volume_profile_df
+            )
+        
+        # 현재 가격 정보
+        current_price = df.iloc[-1]['trade_price']
+        prev_price = df.iloc[-2]['trade_price'] if len(df) > 1 else current_price
+        price_change = current_price - prev_price
+        price_change_pct = (price_change / prev_price) * 100 if prev_price != 0 else 0
+        
+        with col1:
+            st.metric("현재가", f"{current_price:,.0f}원", f"{price_change:+.0f}원 ({price_change_pct:+.2f}%)")
+        
+        with col2:
+            st.metric("24시간 거래량", f"{df.iloc[-1]['candle_acc_trade_volume']:,.0f}")
+        
+        with col3:
+            if not df['RSI'].isna().iloc[-1]:
+                rsi_value = df['RSI'].iloc[-1]
+                rsi_status = "과매수" if rsi_value > 70 else "과매도" if rsi_value < 30 else "중립"
+                st.metric("RSI", f"{rsi_value:.1f}", rsi_status)
+        
+        # 메인 차트
+        fig = create_main_chart(df, support_levels, resistance_levels, 
+                               show_volume_profile, volume_profile_df, indicators)
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # 분석 정보
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if support_levels:
+                st.markdown("### 🛡️ 주요 지지선")
+                for i, level in enumerate(support_levels[:5]):
+                    distance = ((current_price - level) / current_price) * 100  # 수정된 계산
+                    st.markdown(f"**{i+1}.** {level:,.0f}원 (현재가 대비 -{distance:.2f}%)")
+            else:
+                st.markdown("### 🛡️ 주요 지지선")
+                st.markdown("지지선을 찾을 수 없습니다.")
+        
+        with col2:
+            if resistance_levels:
+                st.markdown("### 🎯 주요 저항선")
+                for i, level in enumerate(resistance_levels[:5]):
+                    distance = ((level - current_price) / current_price) * 100  # 수정된 계산
+                    st.markdown(f"**{i+1}.** {level:,.0f}원 (현재가 대비 +{distance:.2f}%)")
+            else:
+                st.markdown("### 🎯 주요 저항선")
+                st.markdown("저항선을 찾을 수 없습니다.")
+        
+        # 거래량 프로파일 정보
+        if show_volume_profile and not volume_profile_df.empty:
+            st.markdown("### 📊 거래량 분석")
+            
+            # POC (Point of Control) 찾기
+            poc_idx = volume_profile_df['volume'].idxmax()
+            poc_price = volume_profile_df.iloc[poc_idx]['price']
+            poc_volume = volume_profile_df.iloc[poc_idx]['volume']
+            
+            st.info(f"🎯 **POC (최대 거래량 가격)**: {poc_price:,.0f}원 (거래량: {poc_volume:,.0f})")
+            
+            # 상위 거래량 구간
+            top_volumes = volume_profile_df.nlargest(3, 'volume')
+            st.markdown("**📈 거래량 상위 3구간:**")
+            for i, row in top_volumes.iterrows():
+                st.markdown(f"- {row['price']:,.0f}원: {row['volume']:,.0f}")
+        
+        # 분석 요약
+        st.markdown("### 📋 분석 요약")
+        analysis_text = []
+        
+        if not df['RSI'].isna().iloc[-1]:
+            rsi = df['RSI'].iloc[-1]
+            if rsi > 70:
+                analysis_text.append("🔴 RSI가 70을 초과하여 과매수 상태입니다.")
+            elif rsi < 30:
+                analysis_text.append("🟢 RSI가 30 미만으로 과매도 상태입니다.")
+            else:
+                analysis_text.append("🟡 RSI가 중립 구간에 있습니다.")
+        
+        if support_levels:
+            nearest_support = support_levels[0]
+            support_distance = ((current_price - nearest_support) / current_price) * 100
+            analysis_text.append(f"🛡️ 가장 가까운 지지선: {nearest_support:,.0f}원 (-{support_distance:.2f}%)")
+        
+        if resistance_levels:
+            nearest_resistance = resistance_levels[0]
+            resistance_distance = ((nearest_resistance - current_price) / current_price) * 100
+            analysis_text.append(f"🎯 가장 가까운 저항선: {nearest_resistance:,.0f}원 (+{resistance_distance:.2f}%)")
+        
+        for text in analysis_text:
+            st.markdown(f"- {text}")
+        
+        # 데이터 테이블 (선택사항)
+        with st.expander("📊 원시 데이터 보기"):
+            display_df = df[['candle_date_time_kst', 'opening_price', 'high_price', 
+                           'low_price', 'trade_price', 'candle_acc_trade_volume']].copy()
+            display_df.columns = ['시간', '시가', '고가', '저가', '종가', '거래량']
+            st.dataframe(display_df.tail(20), use_container_width=True)
+        
+        # 🎯 매매 추천 시스템
+        st.markdown("---")
+        st.markdown("## 🎯 AI 매매 추천 시스템")
+        
+        if buy_signals and sell_signals:
+            col1, col2 = st.columns(2)
             
             with col1:
-                st.metric("현재가", f"{current_price:,.0f}원", f"{price_change:+.0f}원 ({price_change_pct:+.2f}%)")
+                st.markdown("### 💰 추천 매수가")
+                for i, (reason, price, strength) in enumerate(buy_signals[:3]):
+                    percentage = ((current_price - price) / current_price) * 100
+                    
+                    # 추천도에 따른 색상
+                    if strength == '강력 추천':
+                        color = "🟢"
+                        bg_color = "#d4edda"
+                    elif strength == '추천':
+                        color = "🟡"
+                        bg_color = "#fff3cd"
+                    else:
+                        color = "🔵"
+                        bg_color = "#d1ecf1"
+                    
+                    st.markdown(f"""
+                    <div style="background-color: {bg_color}; padding: 10px; border-radius: 5px; margin: 5px 0;">
+                        <strong>{color} {reason}</strong><br>
+                        매수가: <strong>{price:,.0f}원</strong><br>
+                        현재가 대비: <strong>{percentage:+.2f}%</strong><br>
+                        추천도: <strong>{strength}</strong>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            with col2:
+                st.markdown("### 💸 추천 매도가")
+                for i, (reason, price, strength) in enumerate(sell_signals[:3]):
+                    percentage = ((price - current_price) / current_price) * 100
+                    
+                    # 추천도에 따른 색상
+                    if strength == '강력 추천':
+                        color = "🔴"
+                        bg_color = "#f8d7da"
+                    elif strength == '추천':
+                        color = "🟠"
+                        bg_color = "#ffeaa7"
+                    else:
+                        color = "🔵"
+                        bg_color = "#d1ecf1"
+                    
+                    st.markdown(f"""
+                    <div style="background-color: {bg_color}; padding: 10px; border-radius: 5px; margin: 5px 0;">
+                        <strong>{color} {reason}</strong><br>
+                        매도가: <strong>{price:,.0f}원</strong><br>
+                        수익률: <strong>+{percentage:.2f}%</strong><br>
+                        추천도: <strong>{strength}</strong>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # 종합 추천
+            st.markdown("### 🧠 AI 종합 분석")
+            
+            # RSI 기반 추천
+            if not df['RSI'].isna().iloc[-1]:
+                rsi = df['RSI'].iloc[-1]
+                if rsi < 30:
+                    st.success("🟢 **강력 매수 신호**: RSI가 과매도 구간입니다. 단계적 매수를 고려하세요.")
+                elif rsi > 70:
+                    st.error("🔴 **매도 신호**: RSI가 과매수 구간입니다. 수익 실현을 고려하세요.")
+                elif 30 <= rsi <= 50:
+                    st.info("🟡 **중립-매수**: RSI가 중립 하단입니다. 지지선 근처에서 매수 고려.")
+                else:
+                    st.warning("🟠 **중립-매도**: RSI가 중립 상단입니다. 저항선 근처에서 매도 고려.")
+            
+            # 지지선/저항선 기반 추천
+            if nearest_support and nearest_resistance:
+                support_distance = ((current_price - nearest_support) / current_price) * 100
+                resistance_distance = ((nearest_resistance - current_price) / current_price) * 100
+                
+                if support_distance < 5:
+                    st.success(f"🛡️ **지지선 근처**: 현재가가 지지선({nearest_support:,.0f}원)에서 {support_distance:.1f}% 위에 있습니다. 매수 기회!")
+                elif resistance_distance < 5:
+                    st.error(f"🎯 **저항선 근처**: 현재가가 저항선({nearest_resistance:,.0f}원)에서 {resistance_distance:.1f}% 아래에 있습니다. 매도 고려!")
+                else:
+                    st.info(f"📊 **중간 구간**: 지지선까지 -{support_distance:.1f}%, 저항선까지 +{resistance_distance:.1f}% 거리입니다.")
+            
+            # 리스크 관리 조언
+            st.markdown("### ⚠️ 리스크 관리")
+            st.markdown(f"""
+            - **손절선**: {current_price * 0.95:,.0f}원 (-5%) 이하에서 손절 고려
+            - **분할매수**: 추천 매수가에서 3-4회 나누어 매수
+            - **수익실현**: 목표가 도달 시 50% 이상 수익실현 권장
+            - **변동성 주의**: 암호화폐는 높은 변동성을 가지므로 소액으로 시작하세요
+            """)
+        
+        else:
+            st.warning("매매 신호를 계산하기에 데이터가 부족합니다. 더 많은 캔들 데이터가 필요합니다.")metric("현재가", f"{current_price:,.0f}원", f"{price_change:+.0f}원 ({price_change_pct:+.2f}%)")
             
             with col2:
                 st.metric("24시간 거래량", f"{df.iloc[-1]['candle_acc_trade_volume']:,.0f}")
@@ -244,7 +339,6 @@ st.set_page_config(
 # CSS 스타일
 st.markdown("""
 <style>
-    /* 모바일 최적화 스타일 */
     .main-header {
         background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
         padding: 1rem;
@@ -258,49 +352,6 @@ st.markdown("""
         font-size: 2.5rem;
     }
     
-    /* 모바일에서 글자 크기 조정 */
-    @media (max-width: 768px) {
-        .main-header h1 {
-            font-size: 1.8rem !important;
-        }
-        .main-header p {
-            font-size: 0.9rem !important;
-        }
-        
-        /* 메트릭 카드 모바일 최적화 */
-        .metric-card {
-            font-size: 0.85rem !important;
-            padding: 0.5rem !important;
-        }
-        
-        /* 사이드바 숨기기 버튼 스타일 */
-        .css-1d391kg {
-            padding-top: 1rem;
-        }
-        
-        /* 차트 컨테이너 최적화 */
-        .stPlotlyChart {
-            width: 100% !important;
-            height: auto !important;
-        }
-        
-        /* 버튼 크기 조정 */
-        .stButton button {
-            width: 100% !important;
-            padding: 0.5rem !important;
-        }
-        
-        /* 선택박스 최적화 */
-        .stSelectbox {
-            font-size: 0.9rem !important;
-        }
-        
-        /* 멀티셀렉트 최적화 */
-        .stMultiSelect {
-            font-size: 0.85rem !important;
-        }
-    }
-    
     .metric-card {
         background: #f8f9fa;
         padding: 1rem;
@@ -308,6 +359,7 @@ st.markdown("""
         border-left: 4px solid #667eea;
         margin: 0.5rem 0;
     }
+    
     .analysis-section {
         background: #ffffff;
         padding: 1.5rem;
@@ -316,17 +368,32 @@ st.markdown("""
         margin: 1rem 0;
         box-shadow: 0 2px 10px rgba(0,0,0,0.1);
     }
-    .sidebar .sidebar-content {
-        background: linear-gradient(180deg, #f8f9fa 0%, #e9ecef 100%);
-    }
+    
     .stAlert > div {
         background-color: #d4edda;
         border-color: #c3e6cb;
         color: #155724;
     }
     
-    /* 모바일 차트 최적화 */
+    /* 모바일 최적화 */
     @media (max-width: 768px) {
+        .main-header h1 {
+            font-size: 1.8rem !important;
+        }
+        .main-header p {
+            font-size: 0.9rem !important;
+        }
+        .metric-card {
+            font-size: 0.85rem !important;
+            padding: 0.5rem !important;
+        }
+        .stButton button {
+            width: 100% !important;
+            padding: 0.5rem !important;
+        }
+        .stSelectbox {
+            font-size: 0.9rem !important;
+        }
         .js-plotly-plot {
             width: 100% !important;
             height: 400px !important;
@@ -617,38 +684,18 @@ def calculate_trade_signals(df, support_levels, resistance_levels, volume_profil
     return df
 
 def create_main_chart(df, support_levels, resistance_levels, show_volume_profile, volume_profile_df, indicators):
-    """메인 차트 생성 (모바일 최적화)"""
-    
-    # 모바일 감지 (JavaScript를 통한 화면 크기 감지)
-    is_mobile = st.session_state.get('is_mobile', False)
-    
-    # 모바일용 차트 설정
-    if st.session_state.get('screen_width', 1200) < 768:
-        # 모바일: 단순화된 레이아웃
-        fig = make_subplots(
-            rows=2, cols=1,
-            row_heights=[0.7, 0.3],
-            specs=[[{"secondary_y": False}],
-                   [{"secondary_y": False}]],
-            subplot_titles=('📈 가격 차트', '📊 거래량'),
-            vertical_spacing=0.1
-        )
-        chart_height = 500
-        show_volume_profile = False  # 모바일에서는 거래량 프로파일 숨김
-    else:
-        # 데스크톱: 전체 레이아웃
-        fig = make_subplots(
-            rows=3, cols=2,
-            row_heights=[0.6, 0.2, 0.2],
-            column_widths=[0.8, 0.2],
-            specs=[[{"secondary_y": False}, {"type": "bar"}],
-                   [{"secondary_y": False}, None],
-                   [{"secondary_y": False}, None]],
-            subplot_titles=('가격 차트', '거래량 프로파일', '거래량', '', 'RSI', ''),
-            vertical_spacing=0.05,
-            horizontal_spacing=0.05
-        )
-        chart_height = 800
+    """메인 차트 생성"""
+    fig = make_subplots(
+        rows=3, cols=2,
+        row_heights=[0.6, 0.2, 0.2],
+        column_widths=[0.8, 0.2],
+        specs=[[{"secondary_y": False}, {"type": "bar"}],
+               [{"secondary_y": False}, None],
+               [{"secondary_y": False}, None]],
+        subplot_titles=('가격 차트', '거래량 프로파일', '거래량', '', 'RSI', ''),
+        vertical_spacing=0.05,
+        horizontal_spacing=0.05
+    )
     
     # 캔들스틱 차트
     fig.add_trace(
@@ -665,30 +712,28 @@ def create_main_chart(df, support_levels, resistance_levels, show_volume_profile
         row=1, col=1
     )
     
-    # 이동평균선 (모바일에서는 개수 제한)
-    mobile_indicators = ['MA20'] if st.session_state.get('screen_width', 1200) < 768 else indicators
-    
-    if 'MA5' in mobile_indicators:
+    # 이동평균선
+    if 'MA5' in indicators:
         fig.add_trace(
             go.Scatter(x=df['candle_date_time_kst'], y=df['MA5'], 
                       name='MA5', line=dict(color='orange', width=1)),
             row=1, col=1
         )
-    if 'MA20' in mobile_indicators:
+    if 'MA20' in indicators:
         fig.add_trace(
             go.Scatter(x=df['candle_date_time_kst'], y=df['MA20'], 
                       name='MA20', line=dict(color='blue', width=2)),
             row=1, col=1
         )
-    if 'MA60' in mobile_indicators and st.session_state.get('screen_width', 1200) >= 768:
+    if 'MA60' in indicators:
         fig.add_trace(
             go.Scatter(x=df['candle_date_time_kst'], y=df['MA60'], 
                       name='MA60', line=dict(color='purple', width=1)),
             row=1, col=1
         )
     
-    # 볼린저 밴드 (데스크톱만)
-    if '볼린저밴드' in indicators and st.session_state.get('screen_width', 1200) >= 768:
+    # 볼린저 밴드
+    if '볼린저밴드' in indicators:
         fig.add_trace(
             go.Scatter(x=df['candle_date_time_kst'], y=df['BB_upper'], 
                       name='BB Upper', line=dict(color='gray', width=1, dash='dash')),
@@ -700,21 +745,19 @@ def create_main_chart(df, support_levels, resistance_levels, show_volume_profile
             row=1, col=1
         )
     
-    # 지지선/저항선 (개수 제한)
-    max_lines = 3 if st.session_state.get('screen_width', 1200) < 768 else 5
-    
+    # 지지선/저항선
     if support_levels:
-        for level in support_levels[:max_lines]:
+        for level in support_levels[:5]:
             fig.add_hline(y=level, line_dash="dash", line_color="green", 
                          annotation_text=f"지지: {level:,.0f}", row=1, col=1)
     
     if resistance_levels:
-        for level in resistance_levels[:max_lines]:
+        for level in resistance_levels[:5]:
             fig.add_hline(y=level, line_dash="dash", line_color="red", 
                          annotation_text=f"저항: {level:,.0f}", row=1, col=1)
     
-    # 거래량 프로파일 (데스크톱만)
-    if show_volume_profile and not volume_profile_df.empty and st.session_state.get('screen_width', 1200) >= 768:
+    # 거래량 프로파일
+    if show_volume_profile and not volume_profile_df.empty:
         fig.add_trace(
             go.Bar(
                 y=volume_profile_df['price'],
@@ -729,15 +772,14 @@ def create_main_chart(df, support_levels, resistance_levels, show_volume_profile
     
     # 거래량 차트
     colors = ['red' if row['opening_price'] > row['trade_price'] else 'blue' for _, row in df.iterrows()]
-    volume_row = 2 if st.session_state.get('screen_width', 1200) < 768 else 2
     fig.add_trace(
         go.Bar(x=df['candle_date_time_kst'], y=df['candle_acc_trade_volume'],
                name='거래량', marker_color=colors),
-        row=volume_row, col=1
+        row=2, col=1
     )
     
-    # RSI (데스크톱만)
-    if not df['RSI'].isna().all() and st.session_state.get('screen_width', 1200) >= 768:
+    # RSI
+    if not df['RSI'].isna().all():
         fig.add_trace(
             go.Scatter(x=df['candle_date_time_kst'], y=df['RSI'], 
                       name='RSI', line=dict(color='purple')),
@@ -750,14 +792,36 @@ def create_main_chart(df, support_levels, resistance_levels, show_volume_profile
     fig.update_layout(
         title="📊 업비트 차트 분석",
         xaxis_rangeslider_visible=False,
-        height=chart_height,
+        height=800,
         showlegend=True,
-        template="plotly_white",
-        # 모바일 최적화
-        margin=dict(l=20, r=20, t=50, b=20) if st.session_state.get('screen_width', 1200) < 768 else dict(l=50, r=50, t=50, b=50)
+        template="plotly_white"
     )
     
     return fig
+
+if __name__ == "__main__":
+    main()
+
+# 사용법 안내
+st.markdown("---")
+st.markdown("""
+### 💡 사용법 가이드
+
+1. **종목 선택**: 좌측 사이드바에서 분석하고 싶은 암호화폐를 선택하세요.
+2. **시간 간격**: 1분봉부터 월봉까지 다양한 시간대로 분석 가능합니다.
+3. **분석 도구**: 지지선/저항선, 거래량 프로파일, 각종 기술적 지표를 선택할 수 있습니다.
+4. **실시간 업데이트**: '데이터 새로고침' 버튼으로 최신 데이터를 불러올 수 있습니다.
+
+### 🚀 주요 기능
+
+- **📊 거래량 프로파일**: 가격대별 거래량 분포를 시각화
+- **🛡️ 지지선/저항선**: 자동으로 계산된 주요 지지/저항 구간
+- **📈 기술적 지표**: 이동평균선, RSI, 볼린저밴드 등
+- **🎯 POC 분석**: 최대 거래량이 발생한 가격대 표시
+- **📋 종합 분석**: RSI 상태, 지지/저항 거리 등 핵심 정보 요약
+
+**🔄 데이터는 1분마다 자동 캐시되어 API 호출을 최적화합니다.**
+""")
 
 # 메인 애플리케이션
 def main():
