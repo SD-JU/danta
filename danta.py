@@ -14,7 +14,7 @@ st.set_page_config(
     page_title="업비트 차트 분석기",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="auto"
+    initial_sidebar_state="expanded"
 )
 
 # CSS 스타일
@@ -32,7 +32,6 @@ st.markdown("""
         margin: 0;
         font-size: 2.5rem;
     }
-    
     .metric-card {
         background: #f8f9fa;
         padding: 1rem;
@@ -40,7 +39,6 @@ st.markdown("""
         border-left: 4px solid #667eea;
         margin: 0.5rem 0;
     }
-    
     .analysis-section {
         background: #ffffff;
         padding: 1.5rem;
@@ -49,36 +47,13 @@ st.markdown("""
         margin: 1rem 0;
         box-shadow: 0 2px 10px rgba(0,0,0,0.1);
     }
-    
+    .sidebar .sidebar-content {
+        background: linear-gradient(180deg, #f8f9fa 0%, #e9ecef 100%);
+    }
     .stAlert > div {
         background-color: #d4edda;
         border-color: #c3e6cb;
         color: #155724;
-    }
-    
-    /* 모바일 최적화 */
-    @media (max-width: 768px) {
-        .main-header h1 {
-            font-size: 1.8rem !important;
-        }
-        .main-header p {
-            font-size: 0.9rem !important;
-        }
-        .metric-card {
-            font-size: 0.85rem !important;
-            padding: 0.5rem !important;
-        }
-        .stButton button {
-            width: 100% !important;
-            padding: 0.5rem !important;
-        }
-        .stSelectbox {
-            font-size: 0.9rem !important;
-        }
-        .js-plotly-plot {
-            width: 100% !important;
-            height: 400px !important;
-        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -87,6 +62,7 @@ st.markdown("""
 @st.cache_data(ttl=60)  # 1분 캐시
 def get_upbit_tickers():
     """주요 암호화폐만 선별"""
+    # 주요 암호화폐 직접 지정
     major_cryptos = {
         '비트코인': 'KRW-BTC',
         '이더리움': 'KRW-ETH', 
@@ -94,7 +70,7 @@ def get_upbit_tickers():
         'XRP': 'KRW-XRP',
         '에테나': 'KRW-ENA',
         '도지코인': 'KRW-DOGE',
-        '바빌론': 'KRW-BABY'
+        '바빌론': 'KRW-BABY'  # 바빌론 추가
     }
     return major_cryptos
 
@@ -130,7 +106,7 @@ def get_upbit_candles(market, interval, count=200):
         return pd.DataFrame()
 
 def calculate_support_resistance(df, window=20):
-    """지지선/저항선 계산"""
+    """지지선/저항선 계산 (개선된 버전)"""
     if len(df) < window:
         return [], []
     
@@ -191,6 +167,7 @@ def calculate_volume_profile(df, bins=50):
         bin_high = price_bins[i + 1]
         bin_center = (bin_low + bin_high) / 2
         
+        # 각 가격 구간에 해당하는 거래량 합계
         mask = (df['low_price'] <= bin_high) & (df['high_price'] >= bin_low)
         total_volume = df.loc[mask, 'candle_acc_trade_volume'].sum()
         
@@ -229,19 +206,20 @@ def calculate_technical_indicators(df):
     return df
 
 def calculate_trade_signals(df, support_levels, resistance_levels, volume_profile_df):
-    """매수/매도 신호 계산"""
+    """매수/매도 신호 계산 (개선된 버전)"""
     if df.empty or len(df) < 20:
-        return [], [], None, None
+        return None, None, None, None
     
     current_price = df.iloc[-1]['trade_price']
     rsi = df['RSI'].iloc[-1] if not df['RSI'].isna().iloc[-1] else 50
     
-    # 거래량 프로파일에서 POC 찾기
+    # 거래량 프로파일에서 POC (Point of Control) 찾기
     poc_price = None
     if not volume_profile_df.empty:
         poc_idx = volume_profile_df['volume'].idxmax()
         poc_price = volume_profile_df.iloc[poc_idx]['price']
         
+        # POC가 현재가보다 아래면 지지선으로 추가
         if poc_price < current_price:
             support_levels.append(poc_price)
         elif poc_price > current_price:
@@ -251,72 +229,115 @@ def calculate_trade_signals(df, support_levels, resistance_levels, volume_profil
     support_levels = sorted([s for s in support_levels if s < current_price], reverse=True)
     resistance_levels = sorted([r for r in resistance_levels if r > current_price])
     
-    # 가장 가까운 지지선/저항선
+    # 가장 가까운 지지선/저항선 찾기
     nearest_support = support_levels[0] if support_levels else current_price * 0.85
     nearest_resistance = resistance_levels[0] if resistance_levels else current_price * 1.15
     
-    # 변동성 계산
+    # 변동성 계산 (최근 20일 변동폭)
     recent_volatility = df['trade_price'].tail(20).std() / current_price
-    volatility_factor = max(0.02, min(0.1, recent_volatility))
+    volatility_factor = max(0.02, min(0.1, recent_volatility))  # 2%~10% 범위
     
-    # 매수 신호
+    # 매수 추천가 계산
     buy_signals = []
     
+    # 1. 강력한 지지선 근처 (가장 강력한 지지선 +2%)
     if support_levels:
         strong_support = support_levels[0]
         buy_price_1 = strong_support * 1.02
         confidence = "강력 추천" if current_price > strong_support * 1.1 else "추천"
         buy_signals.append(('강력 지지선', buy_price_1, confidence))
     
+    # 2. POC 근처 (거래량 집중 구간)
     if poc_price and poc_price < current_price:
         buy_price_poc = poc_price * 1.01
         buy_signals.append(('POC 지지', buy_price_poc, '강력 추천'))
     
+    # 3. 단기 매수 (현재가 기준)
     buy_price_2 = current_price * (1 - volatility_factor * 1.5)
     buy_signals.append(('단기 매수', buy_price_2, '추천'))
     
-    if rsi < 30:
+    # 4. RSI 기반 매수가
+    if rsi < 30:  # 과매도
         buy_price_3 = current_price * 0.95
         buy_signals.append(('RSI 과매도', buy_price_3, '강력 추천'))
-    elif rsi < 40:
+    elif rsi < 40:  # 중립 하단
         buy_price_3 = current_price * 0.97
         buy_signals.append(('RSI 약세', buy_price_3, '추천'))
     elif rsi < 50:
         buy_price_3 = current_price * 0.98
         buy_signals.append(('RSI 중립하', buy_price_3, '보통'))
     
-    # 매도 신호
+    # 5. 이동평균선 지지
+    if len(df) >= 20 and not df['MA20'].isna().iloc[-1]:
+        ma20 = df['MA20'].iloc[-1]
+        if ma20 < current_price:
+            buy_signals.append(('MA20 지지', ma20 * 1.005, '추천'))
+    
+    # 매도 추천가 계산
     sell_signals = []
     
+    # 1. 강력한 저항선 근처
     if resistance_levels:
         strong_resistance = resistance_levels[0]
         sell_price_1 = strong_resistance * 0.98
         confidence = "강력 추천" if current_price < strong_resistance * 0.9 else "추천"
         sell_signals.append(('강력 저항선', sell_price_1, confidence))
     
+    # 2. POC 저항 근처
     if poc_price and poc_price > current_price:
         sell_price_poc = poc_price * 0.99
         sell_signals.append(('POC 저항', sell_price_poc, '강력 추천'))
     
-    target_profit = max(0.05, volatility_factor * 2)
+    # 3. 단기 목표 (변동성 기반)
+    target_profit = max(0.05, volatility_factor * 2)  # 최소 5% 목표
     sell_price_2 = current_price * (1 + target_profit)
     sell_signals.append(('단기 목표', sell_price_2, '추천'))
     
-    if rsi > 70:
+    # 4. RSI 기반 매도가
+    if rsi > 70:  # 과매수
         sell_price_3 = current_price * 1.02
         sell_signals.append(('RSI 과매수', sell_price_3, '강력 추천'))
-    elif rsi > 60:
+    elif rsi > 60:  # 중립 상단
         sell_price_3 = current_price * 1.04
         sell_signals.append(('RSI 강세', sell_price_3, '추천'))
     elif rsi > 50:
         sell_price_3 = current_price * 1.06
         sell_signals.append(('RSI 중립상', sell_price_3, '보통'))
     
+    # 5. 중장기 목표 (피보나치 기반)
+    if resistance_levels:
+        fib_target = current_price + (resistance_levels[0] - current_price) * 0.618
+        sell_signals.append(('피보나치 61.8%', fib_target, '보통'))
+    
     # 중복 제거 및 정렬
     buy_signals = sorted(list(set(buy_signals)), key=lambda x: x[1], reverse=True)
     sell_signals = sorted(list(set(sell_signals)), key=lambda x: x[1])
     
     return buy_signals, sell_signals, nearest_support, nearest_resistance
+    """기술적 지표 계산"""
+    if df.empty or len(df) < 20:
+        return df
+    
+    # 이동평균선
+    df['MA5'] = df['trade_price'].rolling(window=5).mean()
+    df['MA20'] = df['trade_price'].rolling(window=20).mean()
+    df['MA60'] = df['trade_price'].rolling(window=60).mean()
+    df['MA120'] = df['trade_price'].rolling(window=120).mean()
+    
+    # RSI 계산
+    delta = df['trade_price'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
+    df['RSI'] = 100 - (100 / (1 + rs))
+    
+    # 볼린저 밴드
+    df['BB_middle'] = df['trade_price'].rolling(window=20).mean()
+    bb_std = df['trade_price'].rolling(window=20).std()
+    df['BB_upper'] = df['BB_middle'] + (bb_std * 2)
+    df['BB_lower'] = df['BB_middle'] - (bb_std * 2)
+    
+    return df
 
 def create_main_chart(df, support_levels, resistance_levels, show_volume_profile, volume_profile_df, indicators):
     """메인 차트 생성"""
@@ -357,7 +378,7 @@ def create_main_chart(df, support_levels, resistance_levels, show_volume_profile
     if 'MA20' in indicators:
         fig.add_trace(
             go.Scatter(x=df['candle_date_time_kst'], y=df['MA20'], 
-                      name='MA20', line=dict(color='blue', width=2)),
+                      name='MA20', line=dict(color='blue', width=1)),
             row=1, col=1
         )
     if 'MA60' in indicators:
@@ -382,12 +403,12 @@ def create_main_chart(df, support_levels, resistance_levels, show_volume_profile
     
     # 지지선/저항선
     if support_levels:
-        for level in support_levels[:5]:
+        for level in support_levels[-5:]:  # 최근 5개만
             fig.add_hline(y=level, line_dash="dash", line_color="green", 
                          annotation_text=f"지지: {level:,.0f}", row=1, col=1)
     
     if resistance_levels:
-        for level in resistance_levels[:5]:
+        for level in resistance_levels[-5:]:  # 최근 5개만
             fig.add_hline(y=level, line_dash="dash", line_color="red", 
                          annotation_text=f"저항: {level:,.0f}", row=1, col=1)
     
@@ -425,7 +446,7 @@ def create_main_chart(df, support_levels, resistance_levels, show_volume_profile
     
     # 레이아웃 설정
     fig.update_layout(
-        title="📊 업비트 차트 분석",
+        title="업비트 차트 분석",
         xaxis_rangeslider_visible=False,
         height=800,
         showlegend=True,
@@ -444,7 +465,7 @@ def main():
     </div>
     """, unsafe_allow_html=True)
     
-    # 사이드바
+            # 사이드바
     with st.sidebar:
         st.markdown("## ⚙️ 분석 설정")
         
@@ -552,7 +573,7 @@ def main():
             if support_levels:
                 st.markdown("### 🛡️ 주요 지지선")
                 for i, level in enumerate(support_levels[:5]):
-                    distance = ((current_price - level) / current_price) * 100
+                    distance = ((current_price - level) / current_price) * 100  # 수정된 계산
                     st.markdown(f"**{i+1}.** {level:,.0f}원 (현재가 대비 -{distance:.2f}%)")
             else:
                 st.markdown("### 🛡️ 주요 지지선")
@@ -562,7 +583,7 @@ def main():
             if resistance_levels:
                 st.markdown("### 🎯 주요 저항선")
                 for i, level in enumerate(resistance_levels[:5]):
-                    distance = ((level - current_price) / current_price) * 100
+                    distance = ((level - current_price) / current_price) * 100  # 수정된 계산
                     st.markdown(f"**{i+1}.** {level:,.0f}원 (현재가 대비 +{distance:.2f}%)")
             else:
                 st.markdown("### 🎯 주요 저항선")
@@ -599,14 +620,14 @@ def main():
                 analysis_text.append("🟡 RSI가 중립 구간에 있습니다.")
         
         if support_levels:
-            nearest_support_val = support_levels[0]
-            support_distance = ((current_price - nearest_support_val) / current_price) * 100
-            analysis_text.append(f"🛡️ 가장 가까운 지지선: {nearest_support_val:,.0f}원 (-{support_distance:.2f}%)")
+            nearest_support = min(support_levels, key=lambda x: abs(x - current_price))
+            support_distance = ((current_price - nearest_support) / nearest_support) * 100
+            analysis_text.append(f"🛡️ 가장 가까운 지지선: {nearest_support:,.0f}원 ({support_distance:+.2f}%)")
         
         if resistance_levels:
-            nearest_resistance_val = resistance_levels[0]
-            resistance_distance = ((nearest_resistance_val - current_price) / current_price) * 100
-            analysis_text.append(f"🎯 가장 가까운 저항선: {nearest_resistance_val:,.0f}원 (+{resistance_distance:.2f}%)")
+            nearest_resistance = min(resistance_levels, key=lambda x: abs(x - current_price))
+            resistance_distance = ((nearest_resistance - current_price) / current_price) * 100
+            analysis_text.append(f"🎯 가장 가까운 저항선: {nearest_resistance:,.0f}원 (+{resistance_distance:.2f}%)")
         
         for text in analysis_text:
             st.markdown(f"- {text}")
